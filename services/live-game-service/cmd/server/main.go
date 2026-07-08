@@ -6,13 +6,13 @@ import (
 )
 
 func main() {
-	port := "8080"
+	port := "8082"
 
 	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("graphql-gateway ok"))
+		w.Write([]byte("live-game-service ok"))
 	})
 
-	log.Println("graphql-gateway running on :" + port)
+	log.Println("live-game-service running on :" + port)
 	log.Fatal(http.ListenAndServe(":"+port, nil))
 }
