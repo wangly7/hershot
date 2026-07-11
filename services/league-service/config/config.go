@@ -1,6 +1,7 @@
 package config
 
 import (
+	"fmt"
 	"log"
 
 	"github.com/caarlos0/env/v11"
@@ -14,6 +15,7 @@ type Config struct {
 	PostgresUser     string `env:"POSTGRES_USER" envDefault:"hershot"`
 	PostgresPassword string `env:"POSTGRES_PASSWORD" envDefault:"hershot"`
 	PostgresDB       string `env:"POSTGRES_DB" envDefault:"hershot"`
+	PostgresSSLMode  string `env:"POSTGRES_SSLMODE" envDefault:"disable"`
 }
 
 func Load() Config {
@@ -24,4 +26,16 @@ func Load() Config {
 	}
 
 	return cfg
+}
+
+func (c Config) PostgresURL() string {
+	return fmt.Sprintf(
+		"postgres://%s:%s@s:%s:%d/%s?sslmode=%s",
+		c.PostgresUser,
+		c.PostgresPassword,
+		c.PostgresHost,
+		c.PostgresPort,
+		c.PostgresDB,
+		c.PostgresSSLMode,
+	)
 }

@@ -1,23 +1,74 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"os"
+	"os/signal"
+	"syscall"
+	"time"
 
 	"github.com/wangly7/hershot/services/league-service/config"
+	"github.com/wangly7/hershot/services/league-service/internal/database"
 )
 
 func main() {
 	cfg := config.Load()
 
-	http.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	ctx := context.Background()
+
+	db, err := database.NewPostgresPool(ctx, cfg.PostgresURL())
+	if err != nil {
+		log.Fatalf("failed to initialize postgres: %v", err)
+	}
+	defer db.Close()
+
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
-		w.Write([]byte("league-service ok"))
+		_, _ = w.Write([]byte("league-service ok"))
 	})
 
-	port := fmt.Sprintf(":%d", cfg.HTTPPort)
+	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
+		defer cancel()
 
-	log.Println("league-service running on ", port)
-	log.Fatal(http.ListenAndServe(port, nil))
+		if err := db.Ping(pingCtx); err != nil {
+			http.Error(w, "postgres unavailable", http.StatusServiceUnavailable)
+			return
+		}
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ready"))
+	})
+
+	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
+
+	server := &http.Server{
+		Addr:              addr,
+		Handler:           mux,
+		ReadHeaderTimeout: 5 * time.Second,
+	}
+
+	go func() {
+		log.Printf("league-service running in %s", addr)
+
+		if err := server.ListenAndServe(); err != nil {
+			log.Fatalf("league-service failed: %v", err)
+		}
+	}()
+
+	shutdown := make(chan os.Signal, 1)
+	signal.Notify(shutdown, syscall.SIGINT, syscall.SIGTERM)
+	<-shutdown
+
+	shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	if err := server.Shutdown(shutdownCtx); err != nil {
+		log.Printf("graceful shutdown fail: %v", err)
+	}
 }
