@@ -1,5 +1,11 @@
 package config
 
+import (
+	"log"
+
+	"github.com/caarlos0/env/v11"
+)
+
 type Config struct {
 	HTTPPort int `env:"LIVE_GAME_SERVICE_PORT" envDefault:"8082"`
 
@@ -11,4 +17,14 @@ type Config struct {
 	AWSRegion        string `env:"AWS_REGION" envDefault:"us-west-2"`
 	AWSAccessKeyID   string `env:"AWS_ACCESS_KEY_ID" envDefault:"dummy"`
 	AWSSecretKey     string `env:"AWS_SECRET_ACCESS_KEY" envDefault:"dummy"`
+}
+
+func Load() Config {
+	var cfg Config
+
+	if err := env.Parse(&cfg); err != nil {
+		log.Fatalf("failed to load config: %v", err)
+	}
+
+	return cfg
 }
