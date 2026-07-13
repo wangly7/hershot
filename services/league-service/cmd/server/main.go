@@ -12,6 +12,7 @@ import (
 
 	"github.com/wangly7/hershot/services/league-service/config"
 	"github.com/wangly7/hershot/services/league-service/internal/database"
+	"github.com/wangly7/hershot/services/league-service/internal/team"
 )
 
 func main() {
@@ -24,6 +25,10 @@ func main() {
 		log.Fatalf("failed to initialize postgres: %v", err)
 	}
 	defer db.Close()
+
+	teamRepository := team.NewPostgresRepository(db)
+	teamService := team.NewService(teamRepository)
+	teamHandler := team.NewHandler(teamService)
 
 	mux := http.NewServeMux()
 
@@ -45,6 +50,8 @@ func main() {
 		_, _ = w.Write([]byte("ready"))
 	})
 
+	mux.HandleFunc("/teams", teamHandler.ListTeams)
+
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 
 	server := &http.Server{
@@ -56,7 +63,7 @@ func main() {
 	go func() {
 		log.Printf("league-service running in %s", addr)
 
-		if err := server.ListenAndServe(); err != nil {
+		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("league-service failed: %v", err)
 		}
 	}()
@@ -70,5 +77,7 @@ func main() {
 
 	if err := server.Shutdown(shutdownCtx); err != nil {
 		log.Printf("graceful shutdown fail: %v", err)
+	} else {
+		log.Printf("league-service stopped gracefully")
 	}
 }
