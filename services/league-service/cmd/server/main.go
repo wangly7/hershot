@@ -32,12 +32,12 @@ func main() {
 
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/healthz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /healthz", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusOK)
 		_, _ = w.Write([]byte("league-service ok"))
 	})
 
-	mux.HandleFunc("/readyz", func(w http.ResponseWriter, r *http.Request) {
+	mux.HandleFunc("GET /readyz", func(w http.ResponseWriter, r *http.Request) {
 		pingCtx, cancel := context.WithTimeout(r.Context(), 2*time.Second)
 		defer cancel()
 
@@ -50,7 +50,11 @@ func main() {
 		_, _ = w.Write([]byte("ready"))
 	})
 
-	mux.HandleFunc("/teams", teamHandler.ListTeams)
+	mux.HandleFunc("GET /teams", teamHandler.ListTeams)
+	mux.HandleFunc("GET /teams/{id}", teamHandler.GetTeam)
+	mux.HandleFunc("POST /teams", teamHandler.CreateTeam)
+	mux.HandleFunc("PUT /teams/{id}", teamHandler.UpdateTeam)
+	mux.HandleFunc("DELETE /teams/{id}", teamHandler.DeleteTeam)
 
 	addr := fmt.Sprintf(":%d", cfg.HTTPPort)
 
