@@ -1,0 +1,11 @@
+type Team {
+    id: ID!
+    name: String!
+    city: String!
+    abbreviation: String!
+}
+
+type Query{
+    teams: [Team!]!
+    team(id:ID!): Team
+}
