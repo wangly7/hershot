@@ -2,7 +2,9 @@ package espn
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"log"
 	"sort"
 	"time"
 
@@ -12,7 +14,7 @@ import (
 type Poller struct {
 	client Client
 
-	gameInfo GameInfo
+	game GameInfo
 
 	interval time.Duration
 	output   chan<- domain.RawPlay
@@ -20,7 +22,7 @@ type Poller struct {
 	lastSequence int64
 }
 
-func newPoller(
+func NewPoller(
 	client Client,
 	game GameInfo,
 	interval time.Duration,
@@ -28,15 +30,14 @@ func newPoller(
 ) *Poller {
 	return &Poller{
 		client:       client,
-		gameInfo:     game,
+		game:         game,
 		interval:     interval,
 		output:       output,
 		lastSequence: -1,
 	}
 }
 
-
-// Run starts polling immediately and then continue polling at the 
+// Run starts polling immediately and then continue polling at the
 // configured interval until the context is canceled.
 //
 // A temporary ESPN or mapping error does not stop the Poller. It is logged,
@@ -44,14 +45,45 @@ func newPoller(
 func (p *Poller) Run(ctx context.Context) {
 	// immidately starts polling
 	if err := p.poll(ctx); err != nil &&
+		!errors.Is(err, context.Canceled) &&
+		!errors.Is(err, context.DeadlineExceeded) {
+		log.Printf(
+			"poll ESPN game eventID=%s, competitionID=%s: %v",
+			p.game.EventID,
+			p.game.CompetitionID,
+			err,
+		)
+	}
 
+	ticker := time.NewTicker(p.interval)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			if err := p.poll(ctx); err != nil {
+				if errors.Is(err, context.Canceled) ||
+					errors.Is(err, context.DeadlineExceeded) {
+					return
+				}
+				log.Printf(
+					"poll ESPN game eventID=%s competition=%s: %v",
+					p.game.EventID,
+					p.game.CompetitionID,
+					err,
+				)
+			}
+		}
+	}
 }
 
 func (p *Poller) poll(ctx context.Context) error {
 	response, err := p.client.GetPlays(
 		ctx,
-		p.gameInfo.EventID,
-		p.gameInfo.CompetitionID,
+		p.game.EventID,
+		p.game.CompetitionID,
 	)
 	if err != nil {
 		return err
@@ -69,7 +101,7 @@ func (p *Poller) poll(ctx context.Context) error {
 			continue
 		}
 
-		rawPlay, err := MapPlay(p.gameInfo.EventID, dto)
+		rawPlay, err := MapPlay(p.game.EventID, dto)
 		if err != nil {
 			return fmt.Errorf(
 				"map play %q with sequence %d: %w",
