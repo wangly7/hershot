@@ -2,64 +2,135 @@ package main
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"log"
 	"os"
 	"os/signal"
 	"syscall"
-	"time"
 
 	"github.com/wangly7/hershot/services/ingestion-service/config"
-	"github.com/wangly7/hershot/services/ingestion-service/internal/producer"
-	"github.com/wangly7/hershot/services/ingestion-service/internal/simulator"
+	"github.com/wangly7/hershot/services/ingestion-service/internal/domain"
+	"github.com/wangly7/hershot/services/ingestion-service/internal/eventmapper"
+	"github.com/wangly7/hershot/services/ingestion-service/internal/kafka"
+	"github.com/wangly7/hershot/services/ingestion-service/internal/source/espn"
 )
 
 func main() {
-	cfg, err := config.Load()
-	if err != nil {
-		log.Fatalf("load config: %v", err)
+	if err := run(); err != nil {
+		log.Printf("ingestion service stopped with error: %v", err)
+		os.Exit(1)
 	}
+}
 
-	ctx, stop := signal.NotifyContext(
+func run() error {
+	// The context is canceld when the process receives Ctrl+C or SIGTERM.
+	rootCtx, stop := signal.NotifyContext(
 		context.Background(),
 		os.Interrupt,
 		syscall.SIGTERM,
 	)
 	defer stop()
 
-	gameProducer, err := producer.New(
-		cfg.RedpandaBrokers,
-		cfg.GameEventsTopic,
+	cfg, err := config.Load()
+	if err != nil {
+		return fmt.Errorf("load config: %w", err)
+	}
+
+	/*
+		Create the ESPN API client.
+	*/
+	espnClienet := espn.NewClient(
+		espn.ClientConfig{
+			SiteBaseURL: cfg.ESPNSiteBaseURL,
+			CoreBaseURL: cfg.ESPNCoreBaseURL,
+			Timeout:     cfg.ESPNHTTPTimeout,
+			PlaysLimits: cfg.ESPNPlaysLimits,
+		},
+	)
+
+	eventSource := espn.NewSource(espnClienet, espn.SourceConfig{
+		PollInterval:            cfg.PollInterval,
+		StartLeadTime:           cfg.StartLeadTime,
+		ScheduleRefreshInterval: cfg.ScheduleRefreshInterval,
+	})
+
+	/*
+		Create the Kafka producer
+	*/
+	eventProducer, err := kafka.NewProducer(
+		cfg.KafkaBrokers,
+		cfg.KafkaGameEventsTopic,
 	)
 	if err != nil {
-		log.Fatalf("create producer: %v", err)
+		return fmt.Errorf("create kafka producer: %w", err)
 	}
-	defer gameProducer.Close(ctx)
+	defer eventProducer.Close()
 
-	pingCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
-	defer cancel()
+	output := make(
+		chan domain.RawPlay,
+		cfg.OutputBuffers,
+	)
 
-	if err := gameProducer.Ping(pingCtx); err != nil {
-		log.Fatalf("connect to Redpanda: %v", err)
-	}
+	/*
+		Pipeline: Sheduler -> PollManager -> Pollers
+	*/
+	runCtx, cancelRun := context.WithCancel(rootCtx)
+	defer cancelRun()
+
+	sourceErr := make(chan error, 1)
+
+	go func() {
+		sourceErr <- eventSource.Run(runCtx, output)
+	}()
 
 	log.Printf(
-		"connected to Redpanda brokers=%v topic=%s",
-		cfg.RedpandaBrokers,
-		cfg.GameEventsTopic,
+		"ingestion service started brokers=%v topic=%s",
+		cfg.KafkaBrokers,
+		cfg.KafkaGameEventsTopic,
 	)
 
-	gameSimulator := simulator.New(
-		gameProducer,
-		time.Duration(cfg.SimulationIntervalSeconds)*time.Second,
-		cfg.GameID,
-		cfg.HomeTeamID,
-		cfg.AwayTeamID,
-	)
+	for {
+		select {
+		case play, ok := <-output:
+			if !ok {
+				return nil
+			}
 
-	if err := gameSimulator.Run(ctx); err != nil {
-		log.Fatalf("run simulator: %v", err)
+			event, err := eventmapper.ToGameEvent(play)
+			if err != nil {
+				return fmt.Errorf(
+					"map raw play playEventID=%s gameID=%s: %w",
+					play.EventID,
+					play.GameID,
+					err,
+				)
+			}
+
+			if err := eventProducer.Publish(runCtx, event); err != nil {
+				return fmt.Errorf(
+					"publish game event eventID=%s gameID=%s: %w",
+					event.EventID,
+					event.GameID,
+					err,
+				)
+			}
+		case err := <-sourceErr:
+			if err == nil {
+				return nil
+			}
+
+			if errors.Is(err, context.Canceled) ||
+				errors.Is(err, context.DeadlineExceeded) {
+				return nil
+			}
+
+			return fmt.Errorf("run ESPN source: %w", err)
+		case <-rootCtx.Done():
+			log.Println("shutting down ingestion service")
+			return nil
+		}
 	}
 
-	log.Println("ingestion-service stopped")
-
+	return nil
 }

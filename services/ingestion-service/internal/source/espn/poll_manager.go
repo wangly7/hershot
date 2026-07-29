@@ -13,10 +13,6 @@ const (
 	defaultStartLeadTime = 30 * time.Second
 )
 
-type runningPoller struct {
-	cancel context.CancelFunc
-}
-
 type scheduledGame struct {
 	game  GameInfo
 	timer *time.Timer
@@ -32,7 +28,7 @@ type PollManager struct {
 	mu sync.Mutex
 
 	schedules map[string]*scheduledGame
-	pollers   map[string]*runningPoller
+	pollers   map[string]context.CancelFunc
 }
 
 func NewPollManager(
@@ -44,7 +40,7 @@ func NewPollManager(
 	if pollInterval <= 0 {
 		pollInterval = defaultPollInterval
 	}
-	if startLeadTime <= 0 {
+	if startLeadTime < 0 {
 		startLeadTime = defaultStartLeadTime
 	}
 
@@ -54,7 +50,73 @@ func NewPollManager(
 		startLeadTime: startLeadTime,
 		output:        output,
 		schedules:     make(map[string]*scheduledGame),
-		pollers:       make(map[string]*runningPoller),
+		pollers:       make(map[string]context.CancelFunc),
+	}
+}
+
+// SyncSchedule synchronize timers with the latest scroreboard.
+//
+// It:
+//   - creates timers for newly discovered games
+//   - replace timers when StartTime changes
+//   - remove timers for games no longer present
+//   - stops pollers for games marked completed
+func (m *PollManager) SyncSchedule(
+	ctx context.Context,
+	games []GameInfo,
+) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	allGames := make(map[string]GameInfo, len(games))
+	schedulableGames := make(map[string]GameInfo, len(games))
+	for _, game := range games {
+		if game.EventID == "" {
+			continue
+		}
+
+		allGames[game.EventID] = game
+
+		if game.Completed {
+			continue
+		}
+
+		if game.StartTime.IsZero() {
+			continue
+		}
+
+		schedulableGames[game.EventID] = game
+	}
+
+	// Remove timers for games that are no longer present or schedule
+	for eventID := range m.schedules {
+		if _, exists := schedulableGames[eventID]; !exists {
+			m.cancelScheduleLocked(eventID)
+		}
+	}
+
+	// stop timers and poller for game explicitly marked completed.
+	for eventID, game := range allGames {
+		if game.Completed {
+			m.cancelScheduleLocked(eventID)
+			m.stopLocked(eventID)
+		}
+	}
+
+	// create or update schedules
+	for eventID, game := range schedulableGames {
+		// already started polling
+		if _, exists := m.pollers[eventID]; exists {
+			continue
+		}
+		existing, scheduled := m.schedules[eventID]
+		if scheduled {
+			if sameSchedule(existing.game, game) {
+				continue
+			}
+			m.cancelScheduleLocked(eventID)
+		}
+		m.scheduleLocked(ctx, game)
 	}
 }
 
@@ -64,6 +126,8 @@ func (m *PollManager) Start(
 ) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+
+	m.cancelScheduleLocked(game.EventID)
 
 	return m.startLocked(ctx, game)
 }
@@ -94,10 +158,11 @@ func (m *PollManager) Schedule(
 			return false
 		}
 
-		// TODO: if game time changed, delete previous timer
-
+		// if game time changed, delete previous timer
+		m.cancelScheduleLocked(game.EventID)
 	}
 
+	m.scheduleLocked(ctx, game)
 	return true
 }
 
@@ -107,7 +172,7 @@ func sameSchedule(left GameInfo, right GameInfo) bool {
 		left.StartTime.Equal(right.StartTime)
 }
 
-func (m *PollManager) scheduledLocked(
+func (m *PollManager) scheduleLocked(
 	parentCtx context.Context,
 	game GameInfo,
 ) {
@@ -130,6 +195,7 @@ func (m *PollManager) scheduledLocked(
 	m.schedules[game.EventID] = entry
 }
 
+// startSchedulePoller is called when  a game timer expires.
 func (m *PollManager) startScheduledPoller(
 	parentCtx context.Context,
 	expected *scheduledGame,
@@ -144,11 +210,13 @@ func (m *PollManager) startScheduledPoller(
 		return
 	}
 
+	// ignore an old timer callback after the schedule was replaced
 	if current != expected {
 		return
 	}
 
 	delete(m.schedules, eventID)
+	m.startLocked(parentCtx, expected.game)
 }
 
 // Start a poller without acquiring m.mu.
@@ -172,10 +240,6 @@ func (m *PollManager) startLocked(
 
 	pollerCtx, cancel := context.WithCancel(parentCtx)
 
-	running := &runningPoller{
-		cancel: cancel,
-	}
-
 	poller := NewPoller(
 		m.client,
 		game,
@@ -183,114 +247,68 @@ func (m *PollManager) startLocked(
 		m.output,
 	)
 
-	m.pollers[game.EventID] = running
+	m.pollers[game.EventID] = cancel
 
-	go func() {
-		poller.Run(pollerCtx)
-	}()
+	go poller.Run(pollerCtx)
 
 	return true
 }
 
-func (m *PollManager) removeRunningPoller(
-	eventID string,
-	expected *runningPoller,
-) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	current, exists := m.pollers[eventID]
-	if !exists {
-		return
-	}
-
-	if current != expected {
-		return
-	}
-
-	delete(m.pollers, eventID)
-}
-
+// Stop stops a running poller and cancels any pending timer.
 func (m *PollManager) Stop(eventID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
-	return m.stopLocked(eventID)
+	scheduleCanceled := m.cancelScheduleLocked(eventID)
+	pollerStopped := m.stopLocked(eventID)
+
+	return scheduleCanceled || pollerStopped
 }
 
+// stopLocked stops a running poller.
+//
+// The caller must already hold m.mu.
 func (m *PollManager) stopLocked(
 	eventID string,
 ) bool {
-	if eventID == "" {
-		return false
-	}
 	cancel, exists := m.pollers[eventID]
 	if !exists {
 		return false
 	}
 
-	cancel()
+	// delete before cancel
 	delete(m.pollers, eventID)
+	cancel()
 
 	return true
 }
 
-// Sync synchronizes the running Pollers with the supplied game list.
+// cancelScheduleLocked cancels one pending timer
 //
-// Example:
-// Running Pollers: A, B
-// Supplied Games: B, C
-//
-// Sync will:
-//   - stop A
-//   - keep B
-//   - start C
-func (m *PollManager) Sync(
-	ctx context.Context,
-	games []GameInfo,
-) {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	desiredGames := make(map[string]GameInfo, len(games))
-
-	for _, game := range games {
-		if game.EventID == "" {
-			continue
-		}
-		switch game.State {
-		case GameStateIn:
-			desiredGames[game.EventID] = game
-		default:
-			continue
-		}
+// The caller must already hold m.mu.
+func (m *PollManager) cancelScheduleLocked(eventID string) bool {
+	scheduled, exists := m.schedules[eventID]
+	if !exists {
+		return false
 	}
 
-	// stop pollers whose games are no longer present.
-	for eventID := range m.pollers {
-		if _, exists := desiredGames[eventID]; exists {
-			continue
-		}
+	delete(m.schedules, eventID)
+	scheduled.timer.Stop()
 
-		m.stopLocked(eventID)
-	}
-
-	// start pollers for newly discovered games
-	for eventID, game := range desiredGames {
-		if _, exists := m.pollers[eventID]; exists {
-			continue
-		}
-
-		m.startLocked(ctx, game)
-	}
+	return true
 }
 
+// StopAll cancels all timers and stops all pollers
 func (m *PollManager) StopAll() {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	for eventID := range m.pollers {
 		m.stopLocked(eventID)
+	}
+
+	for eventID := range m.schedules {
+		m.cancelScheduleLocked(eventID)
 	}
 }
 
@@ -301,10 +319,25 @@ func (m *PollManager) ActiveCount() int {
 	return len(m.pollers)
 }
 
+func (m *PollManager) ScheduledCount() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	return len(m.schedules)
+}
+
 func (m *PollManager) IsRunning(eventID string) bool {
 	m.mu.Lock()
 	defer m.mu.Unlock()
 
 	_, exists := m.pollers[eventID]
+	return exists
+}
+
+func (m *PollManager) IsScheduled(eventID string) bool {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+
+	_, exists := m.schedules[eventID]
 	return exists
 }

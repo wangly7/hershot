@@ -29,12 +29,15 @@ const (
 )
 
 type GameEvent struct {
+	Source string
+
 	EventID string `json:"eventId"`
 	GameID  string `json:"gameId"`
 
 	Provider string `json:"provider"`
 	Sequence int64  `json:"sequence"`
 
+	EventTypeID   string    `json:"evnetTypeId,omitempty"`
 	EventType     EventType `json:"eventType"`
 	EventTypeName string    `json:"eventTypeName,omitempty"`
 	Description   string    `json:"description,omitempty"`
@@ -52,6 +55,6 @@ type GameEvent struct {
 	PlayerID        string `json:"playerId,omitempty"`
 	RelatedPlayerID string `json:"realtedPlayerId,omitempty"`
 
-	OccuredAt  time.Time `json:"occuredAt"`
-	ProducedAt time.Time `json:"produceddAt"`
+	OccurredAt  time.Time `json:"occurredAt"`
+	PublishedAt time.Time `json:"producedAt"`
 }
