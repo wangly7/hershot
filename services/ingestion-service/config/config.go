@@ -8,6 +8,8 @@ import (
 )
 
 type Config struct {
+	Source string `env:"SOURCE" envDefault:"espn"`
+
 	KafkaBrokers []string `env:"KAFKA_BROKERS" envSeparator:"," envDefault:"localhost:9092"`
 
 	KafkaGameEventsTopic string `env:"KAFKA_GAME_EVENTS_TOPIC" envDefault:"game-events"`

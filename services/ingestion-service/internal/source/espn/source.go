@@ -54,6 +54,7 @@ func (s *ESPNSource) Run(
 		manager,
 		s.config.ScheduleRefreshInterval,
 	)
+
 	// This guarantees that all pending timers and running Pollers are stopped,
 	// even if Scheduler.Run does not perform cleanup itself.
 	defer manager.StopAll()

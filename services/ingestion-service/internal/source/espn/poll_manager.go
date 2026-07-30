@@ -2,6 +2,7 @@ package espn
 
 import (
 	"context"
+	"fmt"
 	"sync"
 	"time"
 
@@ -178,6 +179,7 @@ func (m *PollManager) scheduleLocked(
 ) {
 	startAt := game.StartTime.Add(-m.startLeadTime)
 	delay := time.Until(startAt)
+	fmt.Printf("competition %s game delay: %v\n", game.EventID, delay)
 
 	if delay < 0 {
 		delay = 0

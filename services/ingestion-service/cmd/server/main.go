@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"os/signal"
+	"strings"
 	"syscall"
 
 	"github.com/wangly7/hershot/services/ingestion-service/config"
@@ -14,6 +15,7 @@ import (
 	"github.com/wangly7/hershot/services/ingestion-service/internal/eventmapper"
 	"github.com/wangly7/hershot/services/ingestion-service/internal/kafka"
 	"github.com/wangly7/hershot/services/ingestion-service/internal/source/espn"
+	"github.com/wangly7/hershot/services/ingestion-service/internal/source/simulator"
 )
 
 func main() {
@@ -40,16 +42,28 @@ func run() error {
 	/*
 		Create the ESPN API client.
 	*/
-	espnClienet := espn.NewClient(
-		espn.ClientConfig{
-			SiteBaseURL: cfg.ESPNSiteBaseURL,
-			CoreBaseURL: cfg.ESPNCoreBaseURL,
-			Timeout:     cfg.ESPNHTTPTimeout,
-			PlaysLimits: cfg.ESPNPlaysLimits,
-		},
-	)
+	var client espn.Client
 
-	eventSource := espn.NewSource(espnClienet, espn.SourceConfig{
+	switch strings.ToLower(cfg.Source) {
+	case "espn":
+		client = espn.NewClient(
+			espn.ClientConfig{
+				SiteBaseURL: cfg.ESPNSiteBaseURL,
+				CoreBaseURL: cfg.ESPNCoreBaseURL,
+				Timeout:     cfg.ESPNHTTPTimeout,
+				PlaysLimits: cfg.ESPNPlaysLimits,
+			},
+		)
+	case "simulator":
+		client, err = simulator.NewClientFromFixtures("./internal/source/simulator/testdata/")
+		if err != nil {
+			return fmt.Errorf("create simulator client: %w", err)
+		}
+	default:
+		return fmt.Errorf("unsupported source: %s", cfg.Source)
+	}
+
+	eventSource := espn.NewSource(client, espn.SourceConfig{
 		PollInterval:            cfg.PollInterval,
 		StartLeadTime:           cfg.StartLeadTime,
 		ScheduleRefreshInterval: cfg.ScheduleRefreshInterval,
@@ -131,6 +145,4 @@ func run() error {
 			return nil
 		}
 	}
-
-	return nil
 }
