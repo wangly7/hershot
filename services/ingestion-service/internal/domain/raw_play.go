@@ -1,9 +1,16 @@
 package domain
 
-import "time"
+import (
+	"time"
+
+	"github.com/wangly7/hershot/shared/events"
+)
 
 type RawPlay struct {
-	Provider string
+	Source string
+
+	StreamID   string
+	StreamMode events.StreamMode
 
 	GameID   string
 	EventID  string

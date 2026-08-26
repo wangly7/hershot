@@ -109,7 +109,7 @@ func MapPlay(gameID string, dto PlayDTO) (domain.RawPlay, error) {
 	}
 
 	return domain.RawPlay{
-		Provider: "espn",
+		Source: "espn",
 
 		GameID:   gameID,
 		EventID:  dto.ID,

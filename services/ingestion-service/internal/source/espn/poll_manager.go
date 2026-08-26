@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wangly7/hershot/services/ingestion-service/internal/domain"
+	"github.com/wangly7/hershot/shared/events"
 )
 
 const (
@@ -242,9 +243,13 @@ func (m *PollManager) startLocked(
 
 	pollerCtx, cancel := context.WithCancel(parentCtx)
 
+	streamId := "live:" + game.EventID
+
 	poller := NewPoller(
 		m.client,
 		game,
+		streamId,
+		events.StreamModeLive,
 		m.pollInterval,
 		m.output,
 	)

@@ -8,7 +8,7 @@ import (
 )
 
 type Config struct {
-	Source string `env:"SOURCE" envDefault:"espn"`
+	ClientType string `env:"CLIENT_TYPE" envDefault:"espn"`
 
 	KafkaBrokers []string `env:"KAFKA_BROKERS" envSeparator:"," envDefault:"localhost:9092"`
 

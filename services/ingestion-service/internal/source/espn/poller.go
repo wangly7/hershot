@@ -9,12 +9,16 @@ import (
 	"time"
 
 	"github.com/wangly7/hershot/services/ingestion-service/internal/domain"
+	"github.com/wangly7/hershot/shared/events"
 )
 
 type Poller struct {
 	client Client
 
 	game GameInfo
+
+	streamID   string
+	streamMode events.StreamMode
 
 	interval time.Duration
 	output   chan<- domain.RawPlay
@@ -25,12 +29,16 @@ type Poller struct {
 func NewPoller(
 	client Client,
 	game GameInfo,
+	streamID string,
+	streamMode events.StreamMode,
 	interval time.Duration,
 	output chan<- domain.RawPlay,
 ) *Poller {
 	return &Poller{
 		client:       client,
 		game:         game,
+		streamID:     streamID,
+		streamMode:   streamMode,
 		interval:     interval,
 		output:       output,
 		lastSequence: -1,
@@ -102,6 +110,7 @@ func (p *Poller) poll(ctx context.Context) error {
 		}
 
 		rawPlay, err := MapPlay(p.game.EventID, dto)
+
 		if err != nil {
 			return fmt.Errorf(
 				"map play %q with sequence %d: %w",
@@ -110,6 +119,9 @@ func (p *Poller) poll(ctx context.Context) error {
 				err,
 			)
 		}
+
+		rawPlay.StreamID = p.streamID
+		rawPlay.StreamMode = p.streamMode
 
 		// Use select instead of a plain:
 		//

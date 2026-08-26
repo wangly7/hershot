@@ -7,6 +7,7 @@ import (
 	"time"
 
 	"github.com/wangly7/hershot/services/ingestion-service/internal/domain"
+	"github.com/wangly7/hershot/shared/events"
 )
 
 type mockClient struct {
@@ -55,12 +56,16 @@ func TestPoller_FirstPollPublishAll(t *testing.T) {
 		CompetitionID: "competition-456",
 	}
 
-	poller := Poller{
-		client:   client,
-		game:     game,
-		interval: time.Second,
-		output:   output,
-	}
+	streamId := "live:" + game.EventID
+
+	poller := NewPoller(
+		client,
+		game,
+		streamId,
+		events.StreamModeLive,
+		time.Second,
+		output,
+	)
 
 	err := poller.poll(context.Background())
 	if err != nil {
@@ -123,6 +128,14 @@ func TestPoller_FirstPollPublishAll(t *testing.T) {
 		)
 	}
 
+	if first.StreamID != streamId {
+		t.Errorf(
+			"streamId = %s; want %s",
+			first.StreamID,
+			streamId,
+		)
+	}
+
 }
 
 func TestPoller_DuplicateSequenceIgnored(t *testing.T) {
@@ -142,10 +155,13 @@ func TestPoller_DuplicateSequenceIgnored(t *testing.T) {
 		EventID:       "event-123",
 		CompetitionID: "competition-456",
 	}
+	streamId := "live:" + game.EventID
 
 	poller := NewPoller(
 		client,
 		game,
+		streamId,
+		events.StreamModeLive,
 		time.Second,
 		output,
 	)
@@ -208,6 +224,7 @@ func TestPoller_ContextCanceld(t *testing.T) {
 
 	// unbuffered channel
 	output := make(chan domain.RawPlay)
+	streamId := "live:event"
 
 	poller := NewPoller(
 		client,
@@ -215,6 +232,8 @@ func TestPoller_ContextCanceld(t *testing.T) {
 			EventID:       "event",
 			CompetitionID: "competition",
 		},
+		streamId,
+		events.StreamModeLive,
 		time.Second,
 		output,
 	)
@@ -297,12 +316,14 @@ func TestPoller_RealPlays(t *testing.T) {
 		CompetitionID: "401857026",
 	}
 
-	poller := Poller{
-		client:   client,
-		game:     game,
-		interval: time.Second,
-		output:   output,
-	}
+	poller := NewPoller(
+		client,
+		game,
+		"live:"+game.EventID,
+		events.StreamModeLive,
+		time.Second,
+		output,
+	)
 
 	if err := poller.poll(context.Background()); err != nil {
 		t.Fatalf("poll() returned unexpected error: %v", err)
@@ -319,4 +340,7 @@ func TestPoller_RealPlays(t *testing.T) {
 	t.Logf("first publish play event: %s, seqeunce: %d", first.Description, first.Sequence)
 	t.Logf("second publish play event: %s, seqeunce: %d", second.Description, second.Sequence)
 	t.Logf("third publish play event: %s, seqeunce: %d", third.Description, third.Sequence)
+
+	t.Logf("stream id : %s", third.StreamID)
+	t.Logf("stream mode : %s", third.StreamMode)
 }

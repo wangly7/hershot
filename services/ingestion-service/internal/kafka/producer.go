@@ -7,7 +7,7 @@ import (
 	"fmt"
 
 	"github.com/twmb/franz-go/pkg/kgo"
-	"github.com/wangly7/hershot/services/ingestion-service/internal/domain"
+	"github.com/wangly7/hershot/shared/events"
 )
 
 type Producer struct {
@@ -43,10 +43,14 @@ func NewProducer(
 
 func (p *Producer) Publish(
 	ctx context.Context,
-	event domain.GameEvent,
+	event events.GameEvent,
 ) error {
 	if err := ctx.Err(); err != nil {
 		return err
+	}
+
+	if event.StreamID == "" {
+		return errors.New("game event stream ID cannot be empty")
 	}
 
 	value, err := json.Marshal(event)
@@ -60,7 +64,7 @@ func (p *Producer) Publish(
 
 	record := &kgo.Record{
 		Topic: p.topic,
-		Key:   []byte(event.GameID),
+		Key:   []byte(event.StreamID),
 		Value: value,
 		Headers: []kgo.RecordHeader{
 			{

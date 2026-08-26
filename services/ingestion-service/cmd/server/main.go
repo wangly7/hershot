@@ -44,7 +44,7 @@ func run() error {
 	*/
 	var client espn.Client
 
-	switch strings.ToLower(cfg.Source) {
+	switch strings.ToLower(cfg.ClientType) {
 	case "espn":
 		client = espn.NewClient(
 			espn.ClientConfig{
@@ -60,7 +60,7 @@ func run() error {
 			return fmt.Errorf("create simulator client: %w", err)
 		}
 	default:
-		return fmt.Errorf("unsupported source: %s", cfg.Source)
+		return fmt.Errorf("unsupported source: %s", cfg.ClientType)
 	}
 
 	eventSource := espn.NewSource(client, espn.SourceConfig{
