@@ -79,6 +79,10 @@ func (p *Producer) Publish(
 				Key:   "source",
 				Value: []byte(event.Source),
 			},
+			{
+				Key:   "stream-mode",
+				Value: []byte(event.StreamMode),
+			},
 		},
 	}
 	result := p.client.ProduceSync(ctx, record)

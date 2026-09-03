@@ -26,7 +26,7 @@ func NewScheduler(
 	refreshInterval time.Duration,
 ) *Scheduler {
 	if refreshInterval <= 0 {
-		refreshInterval = defaultPollInterval
+		refreshInterval = defaultScheduleRefreshInterval
 	}
 
 	return &Scheduler{

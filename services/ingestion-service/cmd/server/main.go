@@ -60,7 +60,7 @@ func run() error {
 			return fmt.Errorf("create simulator client: %w", err)
 		}
 	default:
-		return fmt.Errorf("unsupported source: %s", cfg.ClientType)
+		return fmt.Errorf("unsupported client type: %s", cfg.ClientType)
 	}
 
 	eventSource := espn.NewSource(client, espn.SourceConfig{
