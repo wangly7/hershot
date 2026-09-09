@@ -13,10 +13,9 @@ type Config struct {
 
 	KafkaBrokers []string `env:"KAFKA_BROKERS" envSeparator:"," envDefault:"localhost:9092"`
 
-	DynamoDBEndpoint string `env:"DYNAMODB_ENDPOINT" envDefault:"http://localhost:8000"`
-	AWSRegion        string `env:"AWS_REGION" envDefault:"us-west-2"`
-	AWSAccessKeyID   string `env:"AWS_ACCESS_KEY_ID" envDefault:"dummy"`
-	AWSSecretKey     string `env:"AWS_SECRET_ACCESS_KEY" envDefault:"dummy"`
+	DynamoDBEndpoint        string `env:"DYNAMODB_ENDPOINT" envDefault:"http://localhost:8000"`
+	DynamoDBGameEventsTable string `env:"DYNAMODB_GAME_EVENTS_TABLE" envDefault:"game_events"`
+	AWSRegion               string `env:"AWS_REGION" envDefault:"us-west-2"`
 }
 
 func Load() Config {
