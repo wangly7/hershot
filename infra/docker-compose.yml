@@ -45,6 +45,7 @@ services:
 
   dynamodb-local:
     image: amazon/dynamodb-local:latest
+    user: root
     container_name: hershot-dynamodb
     command: "-jar DynamoDBLocal.jar -sharedDb -dbPath ./data"
     ports:
