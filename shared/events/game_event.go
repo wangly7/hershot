@@ -53,7 +53,7 @@ type GameEvent struct {
 
 	HomeScore  int `json:"homeScore"`
 	AwayScore  int `json:"awayScore"`
-	ScoreValue int `jons:"scoreValue"`
+	ScoreValue int `json:"scoreValue"`
 
 	TeamID     string `json:"teamId,omitempty"`
 	HomeTeamID string `json:"homeTeamId,omitempty"`
